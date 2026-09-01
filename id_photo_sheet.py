@@ -66,6 +66,9 @@ Examples:
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --zoom 0.75
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --variants 0.6,0.65,0.7,0.75
+
+    # no corner cut-mark guides (clean sheet, e.g. for a printer that adds its own)
+    python3 id_photo_sheet.py out.jpg photo.heic --no-cut-marks
 """
 import argparse
 from PIL import Image, ImageDraw
@@ -162,7 +165,7 @@ def crop_fallback(source, zoom=1.0, crop_bias=0.5):
     return img.resize((PX_W, PX_H), Image.LANCZOS)
 
 
-def build_sheet(cropped_images, out_path, copies=None):
+def build_sheet(cropped_images, out_path, copies=None, cut_marks=True):
     """cropped_images: list of already-35x45mm-sized PIL Images."""
     n = len(cropped_images)
     if n < 1:
@@ -201,26 +204,27 @@ def build_sheet(cropped_images, out_path, copies=None):
             x = off_x + gap + c * (PX_W + gap)
             y = off_y + gap + r * (PX_H + gap)
             sheet.paste(slot_images[idx], (x, y))
-            corners = [(x, y), (x + PX_W, y), (x, y + PX_H), (x + PX_W, y + PX_H)]
-            for (cx, cy) in corners:
-                dx = -1 if cx == x else 1
-                dy = -1 if cy == y else 1
-                draw.line([(cx, cy), (cx + dx * mark_len, cy)], fill=mark_col, width=2)
-                draw.line([(cx, cy), (cx, cy + dy * mark_len)], fill=mark_col, width=2)
+            if cut_marks:
+                corners = [(x, y), (x + PX_W, y), (x, y + PX_H), (x + PX_W, y + PX_H)]
+                for (cx, cy) in corners:
+                    dx = -1 if cx == x else 1
+                    dy = -1 if cy == y else 1
+                    draw.line([(cx, cy), (cx + dx * mark_len, cy)], fill=mark_col, width=2)
+                    draw.line([(cx, cy), (cx, cy + dy * mark_len)], fill=mark_col, width=2)
             idx += 1
 
     sheet.save(out_path, dpi=(DPI, DPI), quality=95)
     print(f"copies per photo: {copies} -> {out_path} ({sheet.size[0]}x{sheet.size[1]}px @ {DPI}dpi)")
 
 
-def make_sheet(precise_photos, quick_photos, out_path, zoom=None, crop_bias=0.5):
+def make_sheet(precise_photos, quick_photos, out_path, zoom=None, crop_bias=0.5, cut_marks=True):
     if precise_photos:
         images = [crop_precise(path, hair_top, chin, face_x, zoom=zoom if zoom is not None else 0.68)
                   for (path, hair_top, chin, face_x) in precise_photos]
     else:
         images = [crop_fallback(path, zoom=zoom if zoom is not None else 1.0, crop_bias=crop_bias)
                   for path in quick_photos]
-    build_sheet(images, out_path)
+    build_sheet(images, out_path, cut_marks=cut_marks)
 
 
 def main():
@@ -249,6 +253,9 @@ def main():
                               "zoom -- NOT 1.0 for bias, which means fully bottom-shifted). "
                               "In quick mode every ZOOM in this list must be >= 1.0, same as "
                               "plain --zoom")
+    parser.add_argument("--cut-marks", action=argparse.BooleanOptionalAction, default=True,
+                         help="draw corner cut-mark guides around each photo (default: on). "
+                              "Use --no-cut-marks to get a clean sheet with no guides")
     args = parser.parse_args()
 
     if args.precise_photos:
@@ -268,10 +275,10 @@ def main():
     if args.variants == "__default__":
         if precise_photos:
             for label, zoom in (("tight", 0.75), ("medium", 0.68), ("zoomedout", 0.63)):
-                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom)
+                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, cut_marks=args.cut_marks)
         else:
             for label, bias in (("top", 0.15), ("center", 0.5), ("bottom", 0.85)):
-                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias)
+                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias, cut_marks=args.cut_marks)
     elif args.variants is not None:
         for token in args.variants.split(","):
             token = token.strip()
@@ -289,9 +296,9 @@ def main():
                     parser.error(f"--variants entries must be ZOOM or CROP_BIAS-ZOOM numbers, got {token!r}")
                 bias = args.crop_bias
                 label = f"zoom{zoom}".replace(".", "p")
-            make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias)
+            make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias, cut_marks=args.cut_marks)
     else:
-        make_sheet(precise_photos, quick_photos, args.out_path, zoom=args.zoom, crop_bias=args.crop_bias)
+        make_sheet(precise_photos, quick_photos, args.out_path, zoom=args.zoom, crop_bias=args.crop_bias, cut_marks=args.cut_marks)
 
 
 if __name__ == "__main__":

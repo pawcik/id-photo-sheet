@@ -113,11 +113,23 @@ python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --variants
 # -> sheet_tight.jpg / sheet_medium.jpg / sheet_zoomedout.jpg (zoom 0.75/0.68/0.63)
 ```
 
+### Cut-mark guides
+
+Every sheet gets small gray corner tick marks by default, showing exactly
+where to cut each 35x45mm photo apart. Turn them off with `--no-cut-marks`
+(e.g. if your printer already adds its own guides, or you just want a clean
+image):
+
+```bash
+python3 id_photo_sheet.py sheet.jpg photo.heic --no-cut-marks
+```
+
 ### Print
 
 Take the resulting sheet (10x15cm, 600 DPI) to a Rossmann photo kiosk (or
 any photo printer) and print it at the standard **10x15cm** size. Cut along
-the corner guide marks to separate the 6 individual 35x45mm photos.
+the corner guide marks (unless disabled) to separate the 6 individual
+35x45mm photos.
 
 ## Notes / limitations
 
