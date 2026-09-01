@@ -29,6 +29,18 @@ Three ways to feed it a photo:
    opencv-python-headless (pip install -r requirements-validate.txt).
    Approximate, like --validate below -- always double-check the result.
 
+   If the requested --zoom doesn't fit the source photo (not enough margin
+   around the detected face -- common with an already-tightly-cropped
+   source image), --auto zooms in further automatically until it fits,
+   prints what it adjusted to, and reports PASS/WARN against the *actual*
+   zoom used. This can't always land inside 70-80%: a source photo with too
+   little margin may force a result above 80% no matter how far it's
+   zoomed in, since zooming in is the only direction that can still fit
+   (there's no way to "zoom out" past the edges of the source). Precise
+   mode does NOT do this -- an out-of-bounds --photo/--zoom combination
+   still raises an error there, since the fix is for you to pick different
+   numbers, not for the tool to silently override them.
+
 3. QUICK (no measuring, default) -- just pass bare image paths, assuming
    each photo is more or less just the portrait (subject roughly centered,
    like a typical selfie/headshot). It crops straight to the 35:45 aspect
@@ -136,28 +148,49 @@ def mm_to_px(mm):
 PX_W, PX_H = mm_to_px(MM_W), mm_to_px(MM_H)
 
 
-def crop_precise(source, hair_top, chin, face_center_x, zoom=0.68, crop_top=None):
+def crop_precise(source, hair_top, chin, face_center_x, zoom=0.68, crop_top=None, auto_fit=False):
     """zoom: fraction of the 45mm frame height the head (hair-top to chin)
-    should occupy. Higher = zoomed in/tighter, lower = zoomed out."""
+    should occupy. Higher = zoomed in/tighter, lower = zoomed out.
+
+    auto_fit: if the requested zoom's crop doesn't fit the source photo
+    (not enough margin around the detected/given head), zoom in further
+    (the only direction that can still fit -- there's no way to "zoom out"
+    past the edges of the source) until it does, instead of raising. Used
+    by --auto, where there are no manually-chosen landmarks to blame for
+    the mismatch; precise mode (manual --photo) still raises, since there
+    the fix is for the user to pick different numbers."""
     im = Image.open(source).convert("RGB")
     head_h = chin - hair_top
     if head_h <= 0:
         raise ValueError("chin must be below hair_top")
 
     crop_h = int(round(head_h / zoom))
-    crop_w = int(round(crop_h * MM_W / MM_H))
 
-    if crop_top is None:
-        crop_top = max(0, hair_top - int(round(0.03 * crop_h)))
+    def geometry(crop_h):
+        crop_w = int(round(crop_h * MM_W / MM_H))
+        top = crop_top if crop_top is not None else max(0, hair_top - int(round(0.03 * crop_h)))
+        left = int(round(face_center_x - crop_w / 2))
+        left = max(0, min(left, im.width - crop_w))
+        return left, top, left + crop_w, top + crop_h
 
-    crop_left = int(round(face_center_x - crop_w / 2))
-    crop_left = max(0, min(crop_left, im.width - crop_w))
-    crop_bottom = crop_top + crop_h
-    crop_right = crop_left + crop_w
+    crop_left, top, crop_right, crop_bottom = geometry(crop_h)
+    out_of_bounds = crop_right > im.width or crop_bottom > im.height or top < 0 or crop_left < 0
 
-    if crop_right > im.width or crop_bottom > im.height or crop_top < 0:
+    if out_of_bounds and auto_fit:
+        original_crop_h = crop_h
+        while out_of_bounds and crop_h > 1:
+            crop_h -= 1
+            crop_left, top, crop_right, crop_bottom = geometry(crop_h)
+            out_of_bounds = crop_right > im.width or crop_bottom > im.height or top < 0 or crop_left < 0
+        if not out_of_bounds:
+            new_zoom = head_h / crop_h
+            print(f"{source}: requested zoom {zoom:.3f} needs more margin than this photo has "
+                  f"-- auto-adjusted to zoom {new_zoom:.3f} (tightest crop that still fits)")
+            zoom = new_zoom
+
+    if out_of_bounds:
         raise ValueError(
-            f"{source}: crop ({crop_left},{crop_top},{crop_right},{crop_bottom}) "
+            f"{source}: crop ({crop_left},{top},{crop_right},{crop_bottom}) "
             f"exceeds image bounds ({im.width}x{im.height}) -- try a higher "
             f"--zoom (less zoomed out) or a lower --crop-top"
         )
@@ -168,7 +201,7 @@ def crop_precise(source, hair_top, chin, face_center_x, zoom=0.68, crop_top=None
           f"[{status}: gov.pl wants {lo * 100:.0f}-{hi * 100:.0f}%] "
           f"(exact -- this is precise mode, zoom IS the head-height fraction by construction)")
 
-    face = im.crop((crop_left, crop_top, crop_right, crop_bottom))
+    face = im.crop((crop_left, top, crop_right, crop_bottom))
     return face.resize((PX_W, PX_H), Image.LANCZOS)
 
 
@@ -342,9 +375,9 @@ def build_sheet(cropped_images, out_path, copies=None, cut_marks=True):
     print(f"copies per photo: {copies} -> {out_path} ({sheet.size[0]}x{sheet.size[1]}px @ {DPI}dpi)")
 
 
-def make_sheet(precise_photos, quick_photos, out_path, zoom=None, crop_bias=0.5, cut_marks=True):
+def make_sheet(precise_photos, quick_photos, out_path, zoom=None, crop_bias=0.5, cut_marks=True, auto_fit=False):
     if precise_photos:
-        images = [crop_precise(path, hair_top, chin, face_x, zoom=zoom if zoom is not None else 0.68)
+        images = [crop_precise(path, hair_top, chin, face_x, zoom=zoom if zoom is not None else 0.68, auto_fit=auto_fit)
                   for (path, hair_top, chin, face_x) in precise_photos]
     else:
         images = [crop_fallback(path, zoom=zoom if zoom is not None else 1.0, crop_bias=crop_bias)
@@ -437,7 +470,7 @@ def main():
     if args.variants == "__default__":
         if precise_photos:
             for label, zoom in (("tight", 0.75), ("medium", 0.68), ("zoomedout", 0.63)):
-                try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, cut_marks=args.cut_marks)
+                try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, cut_marks=args.cut_marks, auto_fit=args.auto)
         else:
             for label, bias in (("top", 0.15), ("center", 0.5), ("bottom", 0.85)):
                 try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias, cut_marks=args.cut_marks)
@@ -458,12 +491,12 @@ def main():
                     parser.error(f"--variants entries must be ZOOM or CROP_BIAS-ZOOM numbers, got {token!r}")
                 bias = args.crop_bias
                 label = f"zoom{zoom}".replace(".", "p")
-            try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias, cut_marks=args.cut_marks)
+            try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias, cut_marks=args.cut_marks, auto_fit=args.auto)
     else:
         zoom = args.zoom
         if zoom is None and args.auto:
             zoom = AUTO_DEFAULT_ZOOM
-        make_sheet(precise_photos, quick_photos, args.out_path, zoom=zoom, crop_bias=args.crop_bias, cut_marks=args.cut_marks)
+        make_sheet(precise_photos, quick_photos, args.out_path, zoom=zoom, crop_bias=args.crop_bias, cut_marks=args.cut_marks, auto_fit=args.auto)
 
 
 if __name__ == "__main__":

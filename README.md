@@ -29,6 +29,18 @@ python3 id_photo_sheet.py sample-output.jpg sample-govpl-image.png --variants 0.
 All three are full 10x15cm, 6-up sheets -- see [`sample/`](sample/) for the
 full-resolution files.
 
+`--auto` on the same (very small, 184x241px, already tightly-cropped)
+source photo, showing the auto-adjust-when-it-doesn't-fit behavior
+described [below](#auto-mode-no-measuring-still-aims-for-govpl-compliance):
+
+```bash
+python3 id_photo_sheet.py sample-auto-output.jpg sample-govpl-image.png --auto
+# requested zoom 0.750 needs more margin than this photo has -- auto-adjusted to zoom 0.842
+# head height = 84.2% of frame [WARN: gov.pl wants 70-80%]
+```
+
+<img src="sample/sample-auto-output.jpg" width="200" alt="Auto mode output, auto-adjusted zoom">
+
 ## Requirements
 
 - Python 3.9+
@@ -184,6 +196,26 @@ correction factor, not measured directly. Always double-check the result by
 eye, especially before submitting anything official. `--auto` and `--photo`
 are mutually exclusive (auto detects its own landmarks); a photo where no
 face is detected raises an error asking you to use precise mode instead.
+
+If the requested zoom doesn't fit the source photo -- not enough margin
+around the detected face, which is common with an already-tightly-cropped
+source -- `--auto` zooms in further automatically until it fits, prints
+what it adjusted to, and reports PASS/WARN against the zoom actually used:
+
+```
+photo.jpg: requested zoom 0.750 needs more margin than this photo has -- auto-adjusted to zoom 0.842 (tightest crop that still fits)
+photo.jpg: head height = 84.2% of frame [WARN: gov.pl wants 70-80%] ...
+```
+
+This can't always land inside 70-80%: if the source has too little margin,
+zooming in further is the only direction that can still fit (there's no way
+to "zoom out" past the edges of the source), so the result may end up above
+80% regardless. A WARN here means "this source photo doesn't have enough
+room around the face for a compliant crop" -- try a less tightly-cropped
+source, or fall back to precise mode with different manual landmarks.
+Precise mode itself does **not** auto-adjust like this: an out-of-bounds
+`--photo`/`--zoom` combination still raises an error there, since the fix
+is for you to pick different numbers, not for the tool to override them.
 
 ### Validating the 70-80% head-height rule on any photo
 
