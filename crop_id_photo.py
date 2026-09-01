@@ -77,7 +77,9 @@ def main():
     parser.add_argument("--hair-top", type=int, required=True, help="y pixel of top of hair/head")
     parser.add_argument("--chin", type=int, required=True, help="y pixel of bottom of chin")
     parser.add_argument("--face-center-x", type=int, required=True, help="x pixel of horizontal face center")
-    parser.add_argument("--ratio", type=float, default=0.68, help="head-height fraction of frame (default 0.68)")
+    parser.add_argument("--ratio", "--zoom", dest="ratio", type=float, default=0.68,
+                         help="zoom level: head-height fraction of frame (default 0.68). "
+                              "Higher = zoomed in/tighter (e.g. 0.75), lower = zoomed out (e.g. 0.6)")
     parser.add_argument("--crop-top", type=int, default=None, help="y where crop starts (default: small headroom above --hair-top)")
     parser.add_argument("--out", default="id_photo_35x45.jpg")
     parser.add_argument("--variants", action="store_true",
