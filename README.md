@@ -66,6 +66,19 @@ python3 id_photo_sheet.py sheet.jpg photo.heic --variants
 python3 id_photo_sheet.py sheet.jpg photo.heic --zoom 1.3 --variants
 ```
 
+Or give `--variants` a comma-separated list of custom values to sweep
+instead (any count). Each entry is either a bare zoom level (crop-bias stays
+fixed at whatever `--crop-bias` you passed), or `CROP_BIAS-ZOOM` to vary both
+together:
+
+```bash
+python3 id_photo_sheet.py sheet.jpg photo.heic --variants 1.1,1.2,1.3
+# -> sheet_zoom1p1.jpg / sheet_zoom1p2.jpg / sheet_zoom1p3.jpg
+
+python3 id_photo_sheet.py sheet.jpg photo.heic --variants 0.65-1.1,0.84-1.2
+# -> sheet_bias0p65_zoom1p1.jpg / sheet_bias0p84_zoom1p2.jpg
+```
+
 ### Precise mode (for a real document photo, exact landmarks)
 
 If quick mode's framing isn't accurate enough (e.g. you're actually

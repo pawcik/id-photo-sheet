@@ -40,9 +40,16 @@ Examples:
     # compare 3 crop positions (top/center/bottom) at once
     python3 id_photo_sheet.py out.jpg photo.heic --variants
 
+    # compare specific zoom levels instead (comma-separated list, any count)
+    python3 id_photo_sheet.py out.jpg photo.heic --variants 1.1,1.2,1.3
+
+    # or sweep crop-bias and zoom together, per entry (CROP_BIAS-ZOOM)
+    python3 id_photo_sheet.py out.jpg photo.heic --variants 0.65-1.1,0.84-1.2
+
     # precise mode: exact pixel landmarks instead of guessing
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --zoom 0.75
+    python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --variants 0.6,0.65,0.7,0.75
 """
 import argparse
 from PIL import Image, ImageDraw
@@ -214,8 +221,14 @@ def main():
     parser.add_argument("--crop-bias", type=float, default=0.5,
                          help="quick mode only: where the crop sits vertically -- "
                               "0=top, 0.5=centered (default), 1=bottom")
-    parser.add_argument("--variants", action="store_true",
-                         help="generate 3 sheets instead of one, to compare zoom/framing")
+    parser.add_argument("--variants", nargs="?", const="__default__", default=None,
+                         help="generate multiple sheets instead of one, to compare framing. "
+                              "Bare --variants uses the default sweep (quick mode: crop-bias "
+                              "top/center/bottom; precise mode: zoom 0.75/0.68/0.63). Or pass "
+                              "a comma-separated list to sweep custom values: each entry is "
+                              "either ZOOM alone (crop-bias stays fixed at --crop-bias), e.g. "
+                              "--variants 1.1,1.2,1.3, or CROP_BIAS-ZOOM to vary both together, "
+                              "e.g. --variants 0.65-1.1,0.84-1.2")
     args = parser.parse_args()
 
     if args.precise_photos:
@@ -232,13 +245,31 @@ def main():
     if not dot:
         stem, ext = args.out_path, "jpg"
 
-    if args.variants:
+    if args.variants == "__default__":
         if precise_photos:
             for label, zoom in (("tight", 0.75), ("medium", 0.68), ("zoomedout", 0.63)):
                 make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom)
         else:
             for label, bias in (("top", 0.15), ("center", 0.5), ("bottom", 0.85)):
                 make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias)
+    elif args.variants is not None:
+        for token in args.variants.split(","):
+            token = token.strip()
+            if "-" in token:
+                bias_str, zoom_str = token.split("-", 1)
+                try:
+                    bias, zoom = float(bias_str), float(zoom_str)
+                except ValueError:
+                    parser.error(f"--variants entries must be ZOOM or CROP_BIAS-ZOOM numbers, got {token!r}")
+                label = f"bias{bias}_zoom{zoom}".replace(".", "p")
+            else:
+                try:
+                    zoom = float(token)
+                except ValueError:
+                    parser.error(f"--variants entries must be ZOOM or CROP_BIAS-ZOOM numbers, got {token!r}")
+                bias = args.crop_bias
+                label = f"zoom{zoom}".replace(".", "p")
+            make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias)
     else:
         make_sheet(precise_photos, quick_photos, args.out_path, zoom=args.zoom, crop_bias=args.crop_bias)
 
