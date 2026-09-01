@@ -60,7 +60,7 @@ Give it more than one photo and the 6 slots split evenly across them,
 filled in order (two photos -> 3 copies each, then 3 of the next):
 
 ```bash
-python3 id_photo_sheet.py sheet.jpg kasia.heif pawel.heif
+python3 id_photo_sheet.py sheet.jpg bonnie.heif clyde.heif
 ```
 
 This is **not** face-aware, so head size/position aren't guaranteed to meet
