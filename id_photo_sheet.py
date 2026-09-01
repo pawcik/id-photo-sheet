@@ -24,6 +24,14 @@ Two ways to feed it a photo:
    play with --zoom (crop in tighter) and --crop-bias (shift the crop up or
    down) until it looks right.
 
+   In quick mode, the two baseline ("do nothing extra") values are:
+     --zoom 1.0        no extra zoom -- the largest 35:45 crop that fits
+                        the source untouched (this IS the default)
+     --crop-bias 0.5   centered -- no upward/downward shift (this IS the
+                        default too; 0.5 is the neutral value, NOT 1.0 --
+                        --crop-bias 1.0 means "push the crop all the way to
+                        the bottom", it is not a no-op)
+
 --variants generates several sheets at once instead of one, so you can
 compare framing levels before printing. Pass it a comma-separated list to
 sweep custom values instead of the built-in default sweep -- each entry is
@@ -49,8 +57,10 @@ Examples:
     # compare specific zoom levels instead (comma-separated list, any count)
     python3 id_photo_sheet.py out.jpg photo.heic --variants 1.1,1.2,1.3
 
-    # or sweep crop-bias and zoom together, per entry (CROP_BIAS-ZOOM)
-    python3 id_photo_sheet.py out.jpg photo.heic --variants 0.65-1.1,0.84-1.2
+    # sweep crop-bias and zoom together, per entry (CROP_BIAS-ZOOM); the
+    # first entry (0.5-1.0) is the baseline/no-op case, for comparison
+    # against the two zoomed-in, downward-biased variants after it
+    python3 id_photo_sheet.py out.jpg photo.heic --variants 0.5-1.0,0.65-1.1,0.84-1.2
 
     # precise mode: exact pixel landmarks instead of guessing
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134
@@ -234,8 +244,11 @@ def main():
                               "a comma-separated list to sweep custom values: each entry is "
                               "either ZOOM alone (crop-bias stays fixed at --crop-bias), e.g. "
                               "--variants 1.1,1.2,1.3, or CROP_BIAS-ZOOM to vary both together, "
-                              "e.g. --variants 0.65-1.1,0.84-1.2. In quick mode every ZOOM in "
-                              "this list must be >= 1.0, same as plain --zoom")
+                              "e.g. --variants 0.5-1.0,0.65-1.1,0.84-1.2 (0.5-1.0 there is the "
+                              "quick-mode baseline/no-op: bias 0.5=centered, zoom 1.0=no extra "
+                              "zoom -- NOT 1.0 for bias, which means fully bottom-shifted). "
+                              "In quick mode every ZOOM in this list must be >= 1.0, same as "
+                              "plain --zoom")
     args = parser.parse_args()
 
     if args.precise_photos:

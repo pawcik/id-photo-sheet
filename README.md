@@ -45,13 +45,15 @@ python3 id_photo_sheet.py sheet.jpg kasia.heif pawel.heif
 This is **not** face-aware, so head size/position aren't guaranteed to meet
 any document-photo rule -- but you can play with the framing:
 
-- `--zoom` (>= 1.0, default 1.0): crop in tighter around the center instead
-  of using the whole frame. `1.0` = as zoomed out as possible while still
-  filling the 35:45 shape; `1.5` crops to 2/3 of the original size and scales
-  it up (visibly closer); `2.0` crops to half, etc.
-- `--crop-bias` (0.0-1.0, default 0.5): where that crop sits vertically --
-  `0` keeps the top (crops away the bottom), `1` keeps the bottom (crops away
-  the top), `0.5` is centered.
+- `--zoom` (>= 1.0, default **1.0**): crop in tighter around the center
+  instead of using the whole frame. **`1.0` is the baseline/no-op** -- as
+  zoomed out as possible while still filling the 35:45 shape, i.e. no extra
+  zoom at all. `1.5` crops to 2/3 of the original size and scales it up
+  (visibly closer); `2.0` crops to half, etc.
+- `--crop-bias` (0.0-1.0, default **0.5**): where that crop sits vertically.
+  **`0.5` is the baseline/no-op** (centered, no upward/downward shift) --
+  it is *not* `1.0`. `0` keeps the top (crops away the bottom), `1` keeps
+  the bottom (crops away the top).
 
 ```bash
 python3 id_photo_sheet.py sheet.jpg photo.heic --zoom 1.3 --crop-bias 0.2
@@ -75,8 +77,10 @@ together:
 python3 id_photo_sheet.py sheet.jpg photo.heic --variants 1.1,1.2,1.3
 # -> sheet_zoom1p1.jpg / sheet_zoom1p2.jpg / sheet_zoom1p3.jpg
 
-python3 id_photo_sheet.py sheet.jpg photo.heic --variants 0.65-1.1,0.84-1.2
-# -> sheet_bias0p65_zoom1p1.jpg / sheet_bias0p84_zoom1p2.jpg
+# 0.5-1.0 is the baseline/no-op case (centered, no extra zoom), included
+# here for comparison against the two zoomed-in, downward-biased variants
+python3 id_photo_sheet.py sheet.jpg photo.heic --variants 0.5-1.0,0.65-1.1,0.84-1.2
+# -> sheet_bias0p5_zoom1p0.jpg / sheet_bias0p65_zoom1p1.jpg / sheet_bias0p84_zoom1p2.jpg
 ```
 
 **Every zoom value in a quick-mode `--variants` list must be >= 1.0** -- same
