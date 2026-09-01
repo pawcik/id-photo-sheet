@@ -25,67 +25,70 @@ pip install -r requirements.txt
 
 ## Usage
 
-There are two ways to feed it a photo.
+### Quick mode (default -- no measuring)
 
-### Precise mode (recommended for a real document photo)
-
-Open your source photo in any image viewer that shows pixel coordinates
-(macOS Preview: hover the cursor, or Tools > Show Inspector; GIMP; etc.) and
-note three values: the y of the top of the hair/head, the y of the bottom of
-the chin, and the x of the horizontal center of the face. Then:
+Just pass bare image paths. It assumes each photo is more or less just the
+portrait (subject roughly centered, like a typical selfie/headshot) and
+crops straight to the 35:45 aspect ratio instead of stretching:
 
 ```bash
-python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134
+python3 id_photo_sheet.py sheet.jpg photo.heic
 ```
 
-(`--photo PATH HAIR_TOP CHIN FACE_CENTER_X`, repeatable.) The crop is framed
-so the head fills `--zoom` of the 45mm frame height -- default `0.68`, a
-reasonable middle ground for most official rules, which typically want
-70-80%. Higher = zoomed in/tighter, lower = zoomed out:
-
-```bash
-python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --zoom 0.75
-```
-
-Give it more than one `--photo` and the 6 slots split evenly across them,
+Give it more than one photo and the 6 slots split evenly across them,
 filled in order (two photos -> 3 copies each, then 3 of the next):
-
-```bash
-python3 id_photo_sheet.py sheet.jpg \
-  --photo kasia.heif 289 1991 1110 \
-  --photo pawel.heif 83 1858 1134 \
-  --zoom 0.65
-```
-
-Add `--variants` to generate 3 sheets at once (zoom 0.75 / 0.68 / 0.63,
-suffixed `_tight` / `_medium` / `_zoomedout`) instead of picking one zoom
-level up front:
-
-```bash
-python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --variants
-# -> sheet_tight.jpg / sheet_medium.jpg / sheet_zoomedout.jpg
-```
-
-### Quick mode (casual reprints, no measuring)
-
-Just pass bare image paths, no `--photo`/landmarks:
 
 ```bash
 python3 id_photo_sheet.py sheet.jpg kasia.heif pawel.heif
 ```
 
-Each photo that isn't already 35x45mm-shaped gets center-cropped to that
-aspect ratio instead of stretched (a warning is printed). This is **not**
-face-aware -- head size and position aren't guaranteed to meet any
-document-photo rule, so use precise mode for anything you'll actually submit.
+This is **not** face-aware, so head size/position aren't guaranteed to meet
+any document-photo rule -- but you can play with the framing:
 
-`--crop-bias` (0.0-1.0, default 0.5) controls where that fallback crop is
-taken from: `0` keeps the top/left, `1` keeps the bottom/right. `--variants`
-here generates 3 sheets (`_top` / `_center` / `_bottom`, bias 0.15/0.5/0.85):
+- `--zoom` (>= 1.0, default 1.0): crop in tighter around the center instead
+  of using the whole frame. `1.0` = as zoomed out as possible while still
+  filling the 35:45 shape; `1.5` crops to 2/3 of the original size and scales
+  it up (visibly closer); `2.0` crops to half, etc.
+- `--crop-bias` (0.0-1.0, default 0.5): where that crop sits vertically --
+  `0` keeps the top (crops away the bottom), `1` keeps the bottom (crops away
+  the top), `0.5` is centered.
 
 ```bash
-python3 id_photo_sheet.py sheet.jpg photo.heic --crop-bias 0.2
+python3 id_photo_sheet.py sheet.jpg photo.heic --zoom 1.3 --crop-bias 0.2
+```
+
+Add `--variants` to generate 3 sheets at once instead of picking one crop
+position up front (`_top` / `_center` / `_bottom`, at whatever `--zoom` you
+gave, or `1.0` by default):
+
+```bash
 python3 id_photo_sheet.py sheet.jpg photo.heic --variants
+python3 id_photo_sheet.py sheet.jpg photo.heic --zoom 1.3 --variants
+```
+
+### Precise mode (for a real document photo, exact landmarks)
+
+If quick mode's framing isn't accurate enough (e.g. you're actually
+submitting this for an ID/passport application), give it the exact pixel
+coordinates of the hairline, chin, and face center instead of letting it
+guess. Read these off the photo in any image viewer that shows pixel
+position (macOS Preview: hover the cursor, or Tools > Show Inspector; GIMP;
+etc.):
+
+```bash
+python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134
+```
+
+(`--photo PATH HAIR_TOP CHIN FACE_CENTER_X`, repeatable for more than one
+person.) The crop is framed so the head fills `--zoom` of the 45mm frame
+height here too, but with a different meaning: it's a fraction (default
+`0.68`), where higher = zoomed in/tighter, lower = zoomed out -- most
+official rules want roughly 70-80%:
+
+```bash
+python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --zoom 0.75
+python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --variants
+# -> sheet_tight.jpg / sheet_medium.jpg / sheet_zoomedout.jpg (zoom 0.75/0.68/0.63)
 ```
 
 ### Print
@@ -96,10 +99,11 @@ the corner guide marks to separate the 6 individual 35x45mm photos.
 
 ## Notes / limitations
 
-- No face-detection: precise-mode landmarks are measured by eye. For a real
-  submitted document photo (dowod osobisty, wniosek, etc.), double-check the
-  result against the current official requirements (neutral expression,
-  mouth closed, eyes open, plain light background, correct head-height
-  proportion) before relying on it.
-- Quick mode's fallback aspect-ratio crop is a convenience for casual
-  reprints, not a substitute for precise mode when framing actually matters.
+- Quick mode has no face-detection -- it assumes the subject is roughly
+  centered, which holds for a typical selfie/portrait but isn't guaranteed.
+  Use `--zoom`/`--crop-bias`/`--variants` to dial in the framing by eye.
+- Precise mode's landmarks are measured by eye too, just against exact pixel
+  coordinates instead of guessed proportions. For a real submitted document
+  photo (dowod osobisty, wniosek, etc.), double-check the result against the
+  current official requirements (neutral expression, mouth closed, eyes
+  open, plain light background, correct head-height proportion) either way.

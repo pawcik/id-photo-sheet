@@ -16,31 +16,33 @@ Two ways to feed it a photo:
    (most official rules, including Polish ones, want ~70-80%). Repeat
    --photo for more than one person; the 6 slots split evenly across them.
 
-2. QUICK (casual reprints, no measuring) -- just pass bare image paths.
-   Each gets a center-crop to the 35:45 aspect ratio instead of being
-   stretched (a warning is printed). This is NOT face-aware, so head size
-   and position aren't guaranteed to meet any document-photo rule.
+2. QUICK (no measuring, default) -- just pass bare image paths, assuming
+   each photo is more or less just the portrait (subject roughly centered,
+   like a typical selfie/headshot). It crops straight to the 35:45 aspect
+   ratio instead of stretching. This is NOT face-aware, so head size and
+   position aren't guaranteed to meet any document-photo rule -- but you can
+   play with --zoom (crop in tighter) and --crop-bias (shift the crop up or
+   down) until it looks right.
 
 --variants generates 3 sheets at once instead of one, so you can compare
-zoom/framing levels before printing.
+framing levels before printing.
 
 Examples:
-    # one person, precise landmarks, default zoom (0.68)
-    python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134
+    # quick mode: no landmarks, raw photos straight in, one photo -> 6 copies
+    python3 id_photo_sheet.py out.jpg photo.heic
 
-    # two people, 3 copies of each, custom zoom
-    python3 id_photo_sheet.py out.jpg \\
-        --photo kasia.heif 289 1991 1110 \\
-        --photo pawel.heif 83 1858 1134 \\
-        --zoom 0.6
-
-    # compare 3 zoom levels (0.75 / 0.68 / 0.63) at once
-    python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --variants
-
-    # quick mode: no landmarks, raw photos straight in
+    # two photos -> 3 copies of each
     python3 id_photo_sheet.py out.jpg kasia.heif pawel.heif
-    python3 id_photo_sheet.py out.jpg photo.heic --crop-bias 0.2
+
+    # zoom in (crop tighter into the center) and nudge the crop upward
+    python3 id_photo_sheet.py out.jpg photo.heic --zoom 1.3 --crop-bias 0.2
+
+    # compare 3 crop positions (top/center/bottom) at once
     python3 id_photo_sheet.py out.jpg photo.heic --variants
+
+    # precise mode: exact pixel landmarks instead of guessing
+    python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134
+    python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --zoom 0.75
 """
 import argparse
 from PIL import Image, ImageDraw
@@ -100,27 +102,41 @@ def crop_precise(source, hair_top, chin, face_center_x, zoom=0.68, crop_top=None
     return face.resize((PX_W, PX_H), Image.LANCZOS)
 
 
-def crop_fallback(source, crop_bias=0.5):
-    """Center-crop (positioned by crop_bias) a raw/uncropped photo to the
-    35:45 aspect ratio instead of stretching. Not face-aware."""
+def crop_fallback(source, zoom=1.0, crop_bias=0.5):
+    """No landmarks needed: crop straight to the 35:45 aspect ratio instead
+    of stretching (assumes the subject is roughly centered in the photo,
+    which holds for a typical selfie/portrait framing). Not face-aware, so
+    head size/position aren't guaranteed to meet any document-photo rule.
+
+    zoom: 1.0 = the largest 35:45 box that fits inside the source (as
+    "zoomed out" as this can go); >1.0 crops a smaller, centered region and
+    scales it up, i.e. zooms in (2.0 = crop half the width/height).
+    crop_bias: where that box sits in the leftover vertical space when the
+    source is wider than 35:45 relative to it (0=top, 0.5=centered, 1=bottom).
+    """
+    if zoom < 1.0:
+        raise ValueError("--zoom must be >= 1.0 in quick mode (can't zoom out past the original photo)")
     img = Image.open(source).convert("RGB")
     w, h = img.size
     ratio = w / h
-    if abs(ratio - TARGET_RATIO) > 0.01:
-        print(f"warning: {source} is {w}x{h} (ratio {ratio:.3f}), not 35:45 "
-              f"({TARGET_RATIO:.3f}) -- cropping with crop_bias={crop_bias}; "
-              f"head framing is not guaranteed to meet ID-photo rules")
-        if ratio > TARGET_RATIO:
-            new_w = int(round(h * TARGET_RATIO))
-            left = int(round((w - new_w) * crop_bias))
-            img = img.crop((left, 0, left + new_w, h))
-        else:
-            new_h = int(round(w / TARGET_RATIO))
-            top = int(round((h - new_h) * crop_bias))
-            img = img.crop((0, top, w, top + new_h))
-    if img.size != (PX_W, PX_H):
-        img = img.resize((PX_W, PX_H), Image.LANCZOS)
-    return img
+
+    # largest 35:45 box that fits fully inside the source
+    if ratio > TARGET_RATIO:
+        max_w, max_h = int(round(h * TARGET_RATIO)), h
+    else:
+        max_w, max_h = w, int(round(w / TARGET_RATIO))
+
+    box_w = max(1, int(round(max_w / zoom)))
+    box_h = max(1, int(round(max_h / zoom)))
+    left = int(round((w - box_w) * 0.5))
+    top = int(round((h - box_h) * crop_bias))
+    left = max(0, min(left, w - box_w))
+    top = max(0, min(top, h - box_h))
+
+    print(f"{source}: {w}x{h} -> box {box_w}x{box_h} at ({left},{top}), "
+          f"zoom={zoom}, crop_bias={crop_bias} (not face-aware)")
+    img = img.crop((left, top, left + box_w, top + box_h))
+    return img.resize((PX_W, PX_H), Image.LANCZOS)
 
 
 def build_sheet(cropped_images, out_path, copies=None):
@@ -174,12 +190,13 @@ def build_sheet(cropped_images, out_path, copies=None):
     print(f"copies per photo: {copies} -> {out_path} ({sheet.size[0]}x{sheet.size[1]}px @ {DPI}dpi)")
 
 
-def make_sheet(precise_photos, quick_photos, out_path, zoom=0.68, crop_bias=0.5):
+def make_sheet(precise_photos, quick_photos, out_path, zoom=None, crop_bias=0.5):
     if precise_photos:
-        images = [crop_precise(path, hair_top, chin, face_x, zoom=zoom)
+        images = [crop_precise(path, hair_top, chin, face_x, zoom=zoom if zoom is not None else 0.68)
                   for (path, hair_top, chin, face_x) in precise_photos]
     else:
-        images = [crop_fallback(path, crop_bias=crop_bias) for path in quick_photos]
+        images = [crop_fallback(path, zoom=zoom if zoom is not None else 1.0, crop_bias=crop_bias)
+                  for path in quick_photos]
     build_sheet(images, out_path)
 
 
@@ -190,11 +207,13 @@ def main():
     parser.add_argument("--photo", dest="precise_photos", action="append", nargs=4,
                          metavar=("PATH", "HAIR_TOP", "CHIN", "FACE_CENTER_X"),
                          help="precise mode: source path + pixel landmarks (repeatable)")
-    parser.add_argument("--zoom", "--ratio", dest="zoom", type=float, default=0.68,
-                         help="precise mode only: head-height fraction of frame "
-                              "(default 0.68). Higher = zoomed in, lower = zoomed out")
+    parser.add_argument("--zoom", "--ratio", dest="zoom", type=float, default=None,
+                         help="precise mode: head-height fraction of frame (default 0.68); "
+                              "higher = zoomed in, lower = zoomed out. "
+                              "quick mode: >=1.0 zoom-in factor (default 1.0 = no extra zoom)")
     parser.add_argument("--crop-bias", type=float, default=0.5,
-                         help="quick mode only: 0=top/left, 0.5=centered (default), 1=bottom/right")
+                         help="quick mode only: where the crop sits vertically -- "
+                              "0=top, 0.5=centered (default), 1=bottom")
     parser.add_argument("--variants", action="store_true",
                          help="generate 3 sheets instead of one, to compare zoom/framing")
     args = parser.parse_args()
@@ -219,7 +238,7 @@ def main():
                 make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom)
         else:
             for label, bias in (("top", 0.15), ("center", 0.5), ("bottom", 0.85)):
-                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", crop_bias=bias)
+                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias)
     else:
         make_sheet(precise_photos, quick_photos, args.out_path, zoom=args.zoom, crop_bias=args.crop_bias)
 
