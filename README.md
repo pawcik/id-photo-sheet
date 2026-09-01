@@ -79,6 +79,11 @@ python3 id_photo_sheet.py sheet.jpg photo.heic --variants 0.65-1.1,0.84-1.2
 # -> sheet_bias0p65_zoom1p1.jpg / sheet_bias0p84_zoom1p2.jpg
 ```
 
+**Every zoom value in a quick-mode `--variants` list must be >= 1.0** -- same
+rule as plain `--zoom`: quick mode can only crop tighter than the original
+photo, never "zoom out" past it. A value below `1.0` (e.g. `--variants
+0.8,1.0,1.2`) will error.
+
 ### Precise mode (for a real document photo, exact landmarks)
 
 If quick mode's framing isn't accurate enough (e.g. you're actually

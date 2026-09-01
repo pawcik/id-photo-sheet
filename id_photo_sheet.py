@@ -24,8 +24,14 @@ Two ways to feed it a photo:
    play with --zoom (crop in tighter) and --crop-bias (shift the crop up or
    down) until it looks right.
 
---variants generates 3 sheets at once instead of one, so you can compare
-framing levels before printing.
+--variants generates several sheets at once instead of one, so you can
+compare framing levels before printing. Pass it a comma-separated list to
+sweep custom values instead of the built-in default sweep -- each entry is
+either ZOOM alone, or CROP_BIAS-ZOOM to vary both together. In QUICK mode,
+every zoom value in that list must be >= 1.0 (same rule as --zoom itself --
+quick mode can only crop tighter than the original photo, never "zoom out"
+past it); in PRECISE mode zoom is a 0-1 fraction instead (see above), so
+that constraint doesn't apply there.
 
 Examples:
     # quick mode: no landmarks, raw photos straight in, one photo -> 6 copies
@@ -228,7 +234,8 @@ def main():
                               "a comma-separated list to sweep custom values: each entry is "
                               "either ZOOM alone (crop-bias stays fixed at --crop-bias), e.g. "
                               "--variants 1.1,1.2,1.3, or CROP_BIAS-ZOOM to vary both together, "
-                              "e.g. --variants 0.65-1.1,0.84-1.2")
+                              "e.g. --variants 0.65-1.1,0.84-1.2. In quick mode every ZOOM in "
+                              "this list must be >= 1.0, same as plain --zoom")
     args = parser.parse_args()
 
     if args.precise_photos:
