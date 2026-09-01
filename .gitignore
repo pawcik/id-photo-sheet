@@ -9,4 +9,4 @@ __pycache__/
 *.png
 *.heic
 *.heif
-!docs/**
+!sample/**

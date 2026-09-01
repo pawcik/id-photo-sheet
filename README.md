@@ -8,6 +8,27 @@ Poland, whose standard print format is 10x15cm / 3:2).
 Everything lives in a single script, `id_photo_sheet.py`, no face-detection
 dependency.
 
+## Sample
+
+Source photo ([`sample/sample-govpl-image.png`](sample/sample-govpl-image.png),
+copied from the official gov.pl example at
+[gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu](https://www.gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu)):
+
+<img src="sample/sample-govpl-image.png" width="150" alt="Sample source photo from gov.pl">
+
+Generated with:
+
+```bash
+python3 id_photo_sheet.py sample-output.jpg sample-govpl-image.png --variants 0.5-1.0,0.65-1.1,0.84-1.2
+```
+
+| `bias0p5_zoom1p0` (baseline) | `bias0p65_zoom1p1` | `bias0p84_zoom1p2` |
+| --- | --- | --- |
+| ![baseline](sample/sample-output_bias0p5_zoom1p0.jpg) | ![zoom 1.1](sample/sample-output_bias0p65_zoom1p1.jpg) | ![zoom 1.2](sample/sample-output_bias0p84_zoom1p2.jpg) |
+
+All three are full 10x15cm, 6-up sheets -- see [`sample/`](sample/) for the
+full-resolution files.
+
 ## Requirements
 
 - Python 3.9+
