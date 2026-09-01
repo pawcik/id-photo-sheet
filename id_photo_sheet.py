@@ -69,6 +69,25 @@ Examples:
 
     # no corner cut-mark guides (clean sheet, e.g. for a printer that adds its own)
     python3 id_photo_sheet.py out.jpg photo.heic --no-cut-marks
+
+VALIDATING against the gov.pl rule that the head should fill 70-80% of the
+photo height (https://www.gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu):
+
+  - Precise mode reports this automatically, for free, every time it crops
+    a photo -- --zoom IS the head-height fraction by construction, so it's
+    an exact PASS/WARN against whatever --zoom you asked for.
+
+  - --validate PHOTO [PHOTO2 ...] runs real face detection (OpenCV Haar
+    cascade) on any already-cropped 35x45mm photo -- from this script's
+    quick mode, or from anywhere else -- and estimates head-height coverage
+    instead of just trusting the crop math. Needs opencv-python-headless
+    (pip install opencv-python-headless); the estimate is approximate (a
+    frontal-face cascade detects roughly eyebrows-to-chin, not the true
+    hairline-to-chin head height, so a correction factor is applied) --
+    treat it as a sanity check, not an authoritative pass/fail.
+
+    python3 id_photo_sheet.py --validate sheet_photo.jpg
+    python3 id_photo_sheet.py --validate photo1.jpg photo2.jpg
 """
 import argparse
 from PIL import Image, ImageDraw
@@ -85,6 +104,7 @@ SHEET_MM_W, SHEET_MM_H = 100, 150
 COLS, ROWS = 2, 3
 TOTAL_SLOTS = COLS * ROWS  # 6
 TARGET_RATIO = MM_W / MM_H  # 35:45 = 0.778
+GOVPL_HEAD_HEIGHT_RANGE = (0.70, 0.80)  # gov.pl: head should fill 70-80% of frame height
 
 # 2 * 35mm = 70mm <= 100mm and 3 * 45mm = 135mm <= 150mm, so 6 copies of a
 # 35x45mm photo do fit on one 10x15cm sheet (tighter than the common 4-up
@@ -123,6 +143,12 @@ def crop_precise(source, hair_top, chin, face_center_x, zoom=0.68, crop_top=None
             f"exceeds image bounds ({im.width}x{im.height}) -- try a higher "
             f"--zoom (less zoomed out) or a lower --crop-top"
         )
+
+    lo, hi = GOVPL_HEAD_HEIGHT_RANGE
+    status = "PASS" if lo <= zoom <= hi else "WARN"
+    print(f"{source}: head height = {zoom * 100:.1f}% of frame "
+          f"[{status}: gov.pl wants {lo * 100:.0f}-{hi * 100:.0f}%] "
+          f"(exact -- this is precise mode, zoom IS the head-height fraction by construction)")
 
     face = im.crop((crop_left, crop_top, crop_right, crop_bottom))
     return face.resize((PX_W, PX_H), Image.LANCZOS)
@@ -163,6 +189,50 @@ def crop_fallback(source, zoom=1.0, crop_bias=0.5):
           f"zoom={zoom}, crop_bias={crop_bias} (not face-aware)")
     img = img.crop((left, top, left + box_w, top + box_h))
     return img.resize((PX_W, PX_H), Image.LANCZOS)
+
+
+# A frontal-face Haar cascade typically detects a box spanning roughly
+# eyebrows-to-chin, not the true hairline-to-chin head height gov.pl means.
+# This factor scales the detected box up to approximate the full head
+# height. It's an empirical rule of thumb, not a measured constant --
+# treat the result as a sanity check, not an authoritative pass/fail.
+FACE_TO_HEAD_HEIGHT_CORRECTION = 1.3
+
+
+def validate_face_coverage(path):
+    """Detect the face in `path` (any image, not necessarily 35x45mm) and
+    estimate what fraction of the frame height the head occupies, printing
+    a PASS/WARN against the gov.pl 70-80% rule. Returns the estimated
+    fraction, or None if no face was detected."""
+    try:
+        import cv2
+    except ImportError:
+        raise SystemExit(
+            "--validate needs opencv-python-headless: pip install opencv-python-headless"
+        )
+
+    img = cv2.imread(path)
+    if img is None:
+        raise ValueError(f"could not read {path}")
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+                                      minSize=(int(w * 0.2), int(h * 0.2)))
+    if len(faces) == 0:
+        print(f"{path}: no face detected -- can't validate")
+        return None
+
+    _, _, _, face_h = max(faces, key=lambda f: f[2] * f[3])
+    raw_fraction = face_h / h
+    est_fraction = min(1.0, raw_fraction * FACE_TO_HEAD_HEIGHT_CORRECTION)
+
+    lo, hi = GOVPL_HEAD_HEIGHT_RANGE
+    status = "PASS" if lo <= est_fraction <= hi else "WARN"
+    print(f"{path}: detected face height = {raw_fraction * 100:.1f}% of frame -> "
+          f"estimated head height (hairline-to-chin) ~= {est_fraction * 100:.1f}% "
+          f"[{status}: gov.pl wants {lo * 100:.0f}-{hi * 100:.0f}%] (approximate, not authoritative)")
+    return est_fraction
 
 
 def build_sheet(cropped_images, out_path, copies=None, cut_marks=True):
@@ -229,7 +299,7 @@ def make_sheet(precise_photos, quick_photos, out_path, zoom=None, crop_bias=0.5,
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("out_path")
+    parser.add_argument("out_path", nargs="?", help="output sheet path (not used with --validate)")
     parser.add_argument("photos", nargs="*", help="quick mode: bare image paths (no landmarks)")
     parser.add_argument("--photo", dest="precise_photos", action="append", nargs=4,
                          metavar=("PATH", "HAIR_TOP", "CHIN", "FACE_CENTER_X"),
@@ -256,7 +326,19 @@ def main():
     parser.add_argument("--cut-marks", action=argparse.BooleanOptionalAction, default=True,
                          help="draw corner cut-mark guides around each photo (default: on). "
                               "Use --no-cut-marks to get a clean sheet with no guides")
+    parser.add_argument("--validate", nargs="+", metavar="PHOTO", default=None,
+                         help="validate one or more photos against the gov.pl 70-80%% "
+                              "head-height rule via face detection, instead of building a "
+                              "sheet (requires opencv-python-headless). No out_path needed")
     args = parser.parse_args()
+
+    if args.validate:
+        for path in args.validate:
+            validate_face_coverage(path)
+        return
+
+    if args.out_path is None:
+        parser.error("out_path is required unless using --validate")
 
     if args.precise_photos:
         precise_photos = [(path, int(hair_top), int(chin), int(face_x))

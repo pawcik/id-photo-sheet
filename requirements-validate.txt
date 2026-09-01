@@ -1,0 +1,5 @@
+# Optional: only needed for `--validate` (real face-detection check against
+# the gov.pl 70-80% head-height rule). Pinned below 5.0 because OpenCV 5.x
+# dropped the bundled Haar cascade data files and CascadeClassifier moved
+# out of the default cv2 namespace.
+opencv-python-headless>=4.5,<5

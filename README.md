@@ -44,6 +44,12 @@ source .venv/bin/activate        # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
+Optionally, for the `--validate` face-detection check (see below):
+
+```bash
+pip install -r requirements-validate.txt
+```
+
 ## Usage
 
 ### Quick mode (default -- no measuring)
@@ -133,6 +139,35 @@ python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --zoom 0.75
 python3 id_photo_sheet.py sheet.jpg --photo me.heic 83 1858 1134 --variants
 # -> sheet_tight.jpg / sheet_medium.jpg / sheet_zoomedout.jpg (zoom 0.75/0.68/0.63)
 ```
+
+Precise mode also prints a **PASS/WARN** line every time it crops a photo,
+checking whether the head height (i.e. `--zoom`) falls in the gov.pl-required
+70-80% range. This is exact, not an estimate -- `--zoom` *is* the head-height
+fraction by construction, so it's really just telling you whether the number
+you asked for is in range.
+
+### Validating the 70-80% head-height rule on any photo
+
+The official gov.pl rule ([gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu](https://www.gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu))
+says the head should fill 70-80% of the photo height. Precise mode checks
+this for free (see above, exact by construction). To check any already
+cropped 35x45mm photo instead -- including quick mode's output, or a photo
+from somewhere else entirely -- run real face detection on it:
+
+```bash
+pip install -r requirements-validate.txt   # one-time, adds opencv-python-headless
+python3 id_photo_sheet.py --validate my_id_photo.jpg
+python3 id_photo_sheet.py --validate photo1.jpg photo2.jpg   # multiple at once
+```
+
+This is a **heuristic, not authoritative**: it uses an OpenCV Haar-cascade
+face detector, which finds a box roughly spanning eyebrows-to-chin rather
+than the true hairline-to-chin head height gov.pl means, so a correction
+factor is applied to estimate the real head height. Treat a WARN as "double
+check this by eye," not a guaranteed failure, and a PASS as "probably fine,"
+not a guarantee the photo will be accepted. Validate a single 35x45mm crop,
+not a full 10x15cm sheet (a sheet has 6 small faces in one frame, which will
+always fail).
 
 ### Cut-mark guides
 
