@@ -1,0 +1,12 @@
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+
+# generated output images and any personal source photos you drop in here
+*.jpg
+*.jpeg
+*.png
+*.heic
+*.heif
+!docs/**
