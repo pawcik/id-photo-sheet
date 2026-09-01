@@ -4,7 +4,7 @@ sheet of 35x45mm ID/document photos (6 slots, 2 columns x 3 rows, with
 corner cut-mark guides), sized for kiosk printing (e.g. Rossmann in Poland,
 whose standard print format is 10x15cm / 3:2).
 
-Two ways to feed it a photo:
+Three ways to feed it a photo:
 
 1. PRECISE (recommended for a real document photo) -- give the pixel
    coordinates of the hairline, chin, and face center (read them off the
@@ -16,7 +16,20 @@ Two ways to feed it a photo:
    (most official rules, including Polish ones, want ~70-80%). Repeat
    --photo for more than one person; the 6 slots split evenly across them.
 
-2. QUICK (no measuring, default) -- just pass bare image paths, assuming
+2. AUTO -- like precise mode, but the hairline/chin/face-center landmarks
+   are estimated for you via face detection (OpenCV) instead of measured by
+   hand. Takes bare image paths (like quick mode), plus the --auto flag:
+
+     --auto SOURCE [SOURCE2 ...]
+
+   Then runs through the exact same precise-mode crop math, so it also aims
+   to satisfy gov.pl's two main rules: head height in the 70-80% range
+   (--zoom, default 0.75 here) and the full head-plus-upper-shoulders
+   framing (baked into that same crop math). Needs
+   opencv-python-headless (pip install -r requirements-validate.txt).
+   Approximate, like --validate below -- always double-check the result.
+
+3. QUICK (no measuring, default) -- just pass bare image paths, assuming
    each photo is more or less just the portrait (subject roughly centered,
    like a typical selfie/headshot). It crops straight to the 35:45 aspect
    ratio instead of stretching. This is NOT face-aware, so head size and
@@ -67,15 +80,20 @@ Examples:
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --zoom 0.75
     python3 id_photo_sheet.py out.jpg --photo me.heic 83 1858 1134 --variants 0.6,0.65,0.7,0.75
 
+    # auto mode: no landmarks needed, face-detected instead (needs opencv)
+    python3 id_photo_sheet.py out.jpg photo.heic --auto
+    python3 id_photo_sheet.py out.jpg bonnie.heif clyde.heif --auto --zoom 0.78
+
     # no corner cut-mark guides (clean sheet, e.g. for a printer that adds its own)
     python3 id_photo_sheet.py out.jpg photo.heic --no-cut-marks
 
 VALIDATING against the gov.pl rule that the head should fill 70-80% of the
 photo height (https://www.gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu):
 
-  - Precise mode reports this automatically, for free, every time it crops
-    a photo -- --zoom IS the head-height fraction by construction, so it's
-    an exact PASS/WARN against whatever --zoom you asked for.
+  - Precise and AUTO modes report this automatically, for free, every time
+    they crop a photo -- --zoom IS the head-height fraction by construction
+    (auto mode's is just estimated instead of measured), so it's a PASS/WARN
+    against whatever --zoom was used, printed right when the crop happens.
 
   - --validate PHOTO [PHOTO2 ...] runs real face detection (OpenCV Haar
     cascade) on any already-cropped 35x45mm photo -- from this script's
@@ -198,32 +216,69 @@ def crop_fallback(source, zoom=1.0, crop_bias=0.5):
 # treat the result as a sanity check, not an authoritative pass/fail.
 FACE_TO_HEAD_HEIGHT_CORRECTION = 1.3
 
+AUTO_DEFAULT_ZOOM = 0.75  # middle of the gov.pl 70-80% range, used as --auto's default --zoom
+
+
+def _require_cv2(flag_name):
+    try:
+        import cv2
+        return cv2
+    except ImportError:
+        raise SystemExit(f"{flag_name} needs opencv-python-headless: "
+                          f"pip install -r requirements-validate.txt")
+
+
+def _detect_largest_face(path, flag_name):
+    """Returns (x, y, w, h, img_w, img_h) of the largest detected frontal
+    face box in `path`, or None if no face was found."""
+    cv2 = _require_cv2(flag_name)
+    import numpy as np
+    # load via PIL (which has HEIF/HEIC support registered above) rather
+    # than cv2.imread, which can't read HEIF at all
+    pil_img = Image.open(path).convert("RGB")
+    img = np.array(pil_img)  # RGB
+    h, w = img.shape[:2]
+    gray = cv2.cvtColor(img, cv2.COLOR_RGB2GRAY)
+    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
+    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
+                                      minSize=(int(w * 0.2), int(h * 0.2)))
+    if len(faces) == 0:
+        return None
+    fx, fy, fw, fh = max(faces, key=lambda f: f[2] * f[3])
+    return fx, fy, fw, fh, w, h
+
+
+def auto_landmarks(path):
+    """Estimate (hair_top, chin, face_center_x) for crop_precise() from face
+    detection alone -- no manual measuring. The cascade box approximates
+    eyebrows-to-chin, not the true hairline-to-chin head height, so the
+    extra height (from FACE_TO_HEAD_HEIGHT_CORRECTION) is added above the
+    box, extending it upward through the forehead toward the hairline;
+    the box bottom is used as-is for the chin. This is an approximation."""
+    detected = _detect_largest_face(path, "--auto")
+    if detected is None:
+        raise ValueError(f"{path}: no face detected -- can't auto-crop, use precise mode instead")
+    fx, fy, fw, fh, w, h = detected
+    est_head_h = fh * FACE_TO_HEAD_HEIGHT_CORRECTION
+    hair_top = max(0, int(round(fy - (est_head_h - fh))))
+    chin = int(round(fy + fh))
+    face_center_x = int(round(fx + fw / 2))
+    print(f"{path}: auto-detected face box {fw}x{fh} at ({fx},{fy}) -- "
+          f"estimated hair_top={hair_top} chin={chin} face_center_x={face_center_x} (approximate)")
+    return hair_top, chin, face_center_x
+
 
 def validate_face_coverage(path):
     """Detect the face in `path` (any image, not necessarily 35x45mm) and
     estimate what fraction of the frame height the head occupies, printing
     a PASS/WARN against the gov.pl 70-80% rule. Returns the estimated
     fraction, or None if no face was detected."""
-    try:
-        import cv2
-    except ImportError:
-        raise SystemExit(
-            "--validate needs opencv-python-headless: pip install opencv-python-headless"
-        )
-
-    img = cv2.imread(path)
-    if img is None:
-        raise ValueError(f"could not read {path}")
-    h, w = img.shape[:2]
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    cascade = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")
-    faces = cascade.detectMultiScale(gray, scaleFactor=1.1, minNeighbors=5,
-                                      minSize=(int(w * 0.2), int(h * 0.2)))
-    if len(faces) == 0:
+    detected = _detect_largest_face(path, "--validate")
+    if detected is None:
         print(f"{path}: no face detected -- can't validate")
         return None
+    _, _, _, face_h, _, h = detected
 
-    _, _, _, face_h = max(faces, key=lambda f: f[2] * f[3])
     raw_fraction = face_h / h
     est_fraction = min(1.0, raw_fraction * FACE_TO_HEAD_HEIGHT_CORRECTION)
 
@@ -330,6 +385,14 @@ def main():
                          help="validate one or more photos against the gov.pl 70-80%% "
                               "head-height rule via face detection, instead of building a "
                               "sheet (requires opencv-python-headless). No out_path needed")
+    parser.add_argument("--auto", action="store_true",
+                         help="auto-detect face landmarks (via OpenCV face detection) instead "
+                              "of needing --photo's manual pixel coordinates, then crop through "
+                              "the same precise-mode math -- meets gov.pl's head-height (--zoom, "
+                              "default 0.75) and full-head-plus-shoulders framing rules without "
+                              "measuring anything by hand. Approximate, like --validate: double"
+                              "-check the result. Requires opencv-python-headless; takes bare "
+                              "image paths, not --photo")
     args = parser.parse_args()
 
     if args.validate:
@@ -340,7 +403,14 @@ def main():
     if args.out_path is None:
         parser.error("out_path is required unless using --validate")
 
-    if args.precise_photos:
+    if args.auto:
+        if args.precise_photos:
+            parser.error("--auto and --photo are mutually exclusive -- --auto detects its own landmarks")
+        if not args.photos:
+            parser.error("--auto needs one or more bare image paths")
+        precise_photos = [(path, *auto_landmarks(path)) for path in args.photos]
+        quick_photos = []
+    elif args.precise_photos:
         precise_photos = [(path, int(hair_top), int(chin), int(face_x))
                            for path, hair_top, chin, face_x in args.precise_photos]
         quick_photos = []
@@ -354,13 +424,23 @@ def main():
     if not dot:
         stem, ext = args.out_path, "jpg"
 
+    def try_make_sheet(*a, **kw):
+        """Like make_sheet, but in a --variants sweep one out-of-bounds zoom
+        (common with --auto on a close-up photo, where the estimated head
+        height leaves little room to zoom out further) shouldn't abort the
+        other variants -- skip it and keep going."""
+        try:
+            make_sheet(*a, **kw)
+        except ValueError as e:
+            print(f"skipping variant: {e}")
+
     if args.variants == "__default__":
         if precise_photos:
             for label, zoom in (("tight", 0.75), ("medium", 0.68), ("zoomedout", 0.63)):
-                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, cut_marks=args.cut_marks)
+                try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, cut_marks=args.cut_marks)
         else:
             for label, bias in (("top", 0.15), ("center", 0.5), ("bottom", 0.85)):
-                make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias, cut_marks=args.cut_marks)
+                try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=args.zoom, crop_bias=bias, cut_marks=args.cut_marks)
     elif args.variants is not None:
         for token in args.variants.split(","):
             token = token.strip()
@@ -378,9 +458,12 @@ def main():
                     parser.error(f"--variants entries must be ZOOM or CROP_BIAS-ZOOM numbers, got {token!r}")
                 bias = args.crop_bias
                 label = f"zoom{zoom}".replace(".", "p")
-            make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias, cut_marks=args.cut_marks)
+            try_make_sheet(precise_photos, quick_photos, f"{stem}_{label}.{ext}", zoom=zoom, crop_bias=bias, cut_marks=args.cut_marks)
     else:
-        make_sheet(precise_photos, quick_photos, args.out_path, zoom=args.zoom, crop_bias=args.crop_bias, cut_marks=args.cut_marks)
+        zoom = args.zoom
+        if zoom is None and args.auto:
+            zoom = AUTO_DEFAULT_ZOOM
+        make_sheet(precise_photos, quick_photos, args.out_path, zoom=zoom, crop_bias=args.crop_bias, cut_marks=args.cut_marks)
 
 
 if __name__ == "__main__":

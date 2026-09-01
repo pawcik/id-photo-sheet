@@ -146,6 +146,45 @@ checking whether the head height (i.e. `--zoom`) falls in the gov.pl-required
 fraction by construction, so it's really just telling you whether the number
 you asked for is in range.
 
+### Auto mode (no measuring, still aims for gov.pl compliance)
+
+Precise mode without the manual measuring: give it bare image paths plus
+`--auto`, and it detects the hairline/chin/face-center landmarks for you via
+OpenCV face detection, then runs the exact same precise-mode crop math --
+so it aims to satisfy both of gov.pl's main rules automatically:
+
+```
+twarz powinna zajmować 70-80% zdjęcia,
+zdjęcie powinno przedstawiać całą głowę (od jej czubka) oraz górną część barków,
+```
+
+("the face should occupy 70-80% of the photo" / "the photo should show the
+entire head, from its crown, plus the upper part of the shoulders")
+
+```bash
+pip install -r requirements-validate.txt   # one-time, adds opencv-python-headless
+python3 id_photo_sheet.py sheet.jpg photo.heic --auto
+```
+
+`--auto`'s default `--zoom` is `0.75` (the middle of the 70-80% range,
+different from precise mode's own default of `0.68`) and it prints the same
+PASS/WARN line as precise mode. Works with more than one photo and with
+`--variants` too:
+
+```bash
+python3 id_photo_sheet.py sheet.jpg bonnie.heif clyde.heif --auto
+python3 id_photo_sheet.py sheet.jpg photo.heic --auto --variants
+```
+
+This is **approximate, not authoritative** -- same caveat as `--validate`
+below (it's the same face detector under the hood): a Haar cascade detects
+a box roughly spanning eyebrows-to-chin, and the hairline/head-crown position
+is then estimated by extrapolating upward from that box using a fixed
+correction factor, not measured directly. Always double-check the result by
+eye, especially before submitting anything official. `--auto` and `--photo`
+are mutually exclusive (auto detects its own landmarks); a photo where no
+face is detected raises an error asking you to use precise mode instead.
+
 ### Validating the 70-80% head-height rule on any photo
 
 The official gov.pl rule ([gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu](https://www.gov.pl/web/gov/zdjecie-do-dowodu-lub-paszportu))
