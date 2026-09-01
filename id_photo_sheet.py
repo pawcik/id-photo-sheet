@@ -46,7 +46,7 @@ Examples:
     python3 id_photo_sheet.py out.jpg photo.heic
 
     # two photos -> 3 copies of each
-    python3 id_photo_sheet.py out.jpg kasia.heif pawel.heif
+    python3 id_photo_sheet.py out.jpg bonnie.heif clyde.heif
 
     # zoom in (crop tighter into the center) and nudge the crop upward
     python3 id_photo_sheet.py out.jpg photo.heic --zoom 1.3 --crop-bias 0.2
